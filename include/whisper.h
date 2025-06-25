@@ -479,6 +479,11 @@ extern "C" {
                              float * logits,
                               void * user_data);
 
+    // VAD callback
+    // Called during VAD processing to allow user interruption
+    // If it returns false, the VAD processing is aborted
+    typedef bool (*whisper_vad_callback)(void * user_data);
+
     // Parameters for the whisper_full() function
     // If you change the order or add new parameters, make sure to update the default values in whisper.cpp:
     // whisper_full_default_params()
@@ -574,6 +579,10 @@ extern "C" {
         // called by each decoder to filter obtained logits
         whisper_logits_filter_callback logits_filter_callback;
         void * logits_filter_callback_user_data;
+
+        // called during VAD processing to allow user interruption
+        whisper_vad_callback vad_callback;
+        void * vad_callback_user_data;
 
         const whisper_grammar_element ** grammar_rules;
         size_t                           n_grammar_rules;
@@ -690,7 +699,9 @@ extern "C" {
     WHISPER_API bool whisper_vad_detect_speech(
             struct whisper_vad_context * vctx,
                            const float * samples,
-                                   int   n_samples);
+                                   int   n_samples,
+                       whisper_vad_callback   callback,
+                                    void *   callback_user_data);
 
     WHISPER_API int     whisper_vad_n_probs(struct whisper_vad_context * vctx);
     WHISPER_API float * whisper_vad_probs  (struct whisper_vad_context * vctx);
@@ -705,7 +716,9 @@ extern "C" {
             struct whisper_vad_context * vctx,
             struct whisper_vad_params    params,
                            const float * samples,
-                                   int   n_samples);
+                                   int   n_samples,
+                       whisper_vad_callback   callback,
+                                    void *   callback_user_data);
 
     WHISPER_API int whisper_vad_segments_n_segments(struct whisper_vad_segments * segments);
 
