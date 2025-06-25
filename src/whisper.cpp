@@ -5100,7 +5100,9 @@ struct whisper_vad_context * whisper_vad_init_with_params(
 bool whisper_vad_detect_speech(
         struct whisper_vad_context * vctx,
         const float * samples,
-        int n_samples) {
+        int n_samples,
+        whisper_vad_callback callback,
+        void * callback_user_data) {
     int n_chunks = n_samples / vctx->n_window;
     if (n_samples % vctx->n_window != 0) {
         n_chunks += 1;  // Add one more chunk for remaining samples.
@@ -5133,6 +5135,14 @@ bool whisper_vad_detect_speech(
     const int64_t t_start_vad_us = ggml_time_us();
 
     for (int i = 0; i < n_chunks; i++) {
+        // Check VAD callback during chunk processing
+        if (callback && callback_user_data) {
+            if (!callback(callback_user_data)) {
+                WHISPER_LOG_INFO("%s: VAD detection aborted by callback at chunk %d/%d\n", __func__, i, n_chunks);
+                return false;
+            }
+        }
+        
         const int idx_start = i * vctx->n_window;
         const int idx_end = std::min(idx_start + vctx->n_window, n_samples);
 
@@ -5439,9 +5449,11 @@ struct whisper_vad_segments * whisper_vad_segments_from_samples(
         whisper_vad_context * vctx,
         whisper_vad_params params,
         const float * samples,
-        int n_samples) {
+        int n_samples,
+        whisper_vad_callback callback,
+        void * callback_user_data) {
     WHISPER_LOG_INFO("%s: detecting speech timestamps in %d samples\n", __func__, n_samples);
-    if (!whisper_vad_detect_speech(vctx, samples, n_samples)) {
+    if (!whisper_vad_detect_speech(vctx, samples, n_samples, callback, callback_user_data)) {
         WHISPER_LOG_ERROR("%s: failed to detect speech\n", __func__);
         return nullptr;
     }
@@ -5986,6 +5998,9 @@ struct whisper_full_params whisper_full_default_params(enum whisper_sampling_str
 
         /*.logits_filter_callback           =*/ nullptr,
         /*.logits_filter_callback_user_data =*/ nullptr,
+
+        /*.vad_callback           =*/ nullptr,
+        /*.vad_callback_user_data =*/ nullptr,
 
         /*.grammar_rules   =*/ nullptr,
         /*.n_grammar_rules =*/ 0,
@@ -6639,7 +6654,16 @@ static bool whisper_vad(
 
     const whisper_vad_params & vad_params = params.vad_params;
 
-    whisper_vad_segments * vad_segments = whisper_vad_segments_from_samples(vctx, vad_params, samples, n_samples);
+    whisper_vad_segments * vad_segments = whisper_vad_segments_from_samples(vctx, vad_params, samples, n_samples, params.vad_callback, params.vad_callback_user_data);
+
+    // Check VAD callback after segment detection
+    if (params.vad_callback && params.vad_callback_user_data) {
+        if (!params.vad_callback(params.vad_callback_user_data)) {
+            WHISPER_LOG_INFO("%s: VAD processing aborted by callback\n", __func__);
+            whisper_vad_free_segments(vad_segments);
+            return false;
+        }
+    }
 
     if (vad_segments->data.size() > 0) {
         state->has_vad_segments = true;
@@ -6689,6 +6713,15 @@ static bool whisper_vad(
 
         int offset = 0;
         for (int i = 0; i < (int)vad_segments->data.size(); i++) {
+            // Check VAD callback during segment processing
+            if (params.vad_callback && params.vad_callback_user_data) {
+                if (!params.vad_callback(params.vad_callback_user_data)) {
+                    WHISPER_LOG_INFO("%s: VAD processing aborted by callback during segment %d\n", __func__, i);
+                    whisper_vad_free_segments(vad_segments);
+                    return false;
+                }
+            }
+            
             int segment_start_samples = cs_to_samples(vad_segments->data[i].start);
             int segment_end_samples   = cs_to_samples(vad_segments->data[i].end);
 
