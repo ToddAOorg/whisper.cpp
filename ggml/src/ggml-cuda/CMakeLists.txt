@@ -24,17 +24,32 @@ if (CUDAToolkit_FOUND)
         #     for best performance and to also build real architectures for the most commonly used GPUs.
         if (GGML_NATIVE AND CUDAToolkit_VERSION VERSION_GREATER_EQUAL "11.6" AND CMAKE_VERSION VERSION_GREATER_EQUAL "3.24")
             set(CMAKE_CUDA_ARCHITECTURES "native")
-        elseif(GGML_CUDA_F16 OR GGML_CUDA_DMMV_F16)
-            if (CUDAToolkit_VERSION VERSION_GREATER_EQUAL "11.8")
-                set(CMAKE_CUDA_ARCHITECTURES "60-virtual;61-virtual;70-virtual;75-virtual;80-virtual;86-real;89-real")
-            else()
-                set(CMAKE_CUDA_ARCHITECTURES "60-virtual;61-virtual;70-virtual;75-virtual;80-virtual;86-real")
-            endif()
         else()
+            if (CUDAToolkit_VERSION VERSION_LESS "13")
+                list(APPEND CMAKE_CUDA_ARCHITECTURES 50-virtual 61-virtual 70-virtual)
+            endif ()
+
+            list(APPEND CMAKE_CUDA_ARCHITECTURES 75-virtual 80-virtual 86-real)
+
             if (CUDAToolkit_VERSION VERSION_GREATER_EQUAL "11.8")
-                set(CMAKE_CUDA_ARCHITECTURES "50-virtual;61-virtual;70-virtual;75-virtual;80-virtual;86-real;89-real")
-            else()
-                set(CMAKE_CUDA_ARCHITECTURES "50-virtual;61-virtual;70-virtual;75-virtual;80-virtual;86-real")
+                list(APPEND CMAKE_CUDA_ARCHITECTURES 89-real 90-virtual)
+            endif()
+
+            if (CUDAToolkit_VERSION VERSION_GREATER_EQUAL "12.8")
+                # The CUDA architecture 120f-virtual would in principle work for Blackwell support
+                #     but the newly added "f" suffix conflicted with a preexising regex for validating CUDA architectures in CMake.
+                # So either a recent CMake version or one with the backported fix is needed.
+                # The following versions should work:
+                #   - CMake >= v3.31.8 && CMake < v4.0.0
+                #   - CMake >= v4.0.2
+                # This is NOT documented in the CMake release notes,
+                #     check Modules/Internal/CMakeCUDAArchitecturesValidate.cmake in the CMake git repository instead.
+                # However, the architectures 120a-real and 121a-real should work with basically any CMake version and
+                #     until the release of e.g. Rubin there is no benefit to shipping virtual architectures for Blackwell.
+                list(APPEND CMAKE_CUDA_ARCHITECTURES 120a-real)
+            endif()
+            if (CUDAToolkit_VERSION VERSION_GREATER_EQUAL "12.9")
+                list(APPEND CMAKE_CUDA_ARCHITECTURES 121a-real)
             endif()
         endif()
     endif()
@@ -170,6 +185,10 @@ if (CUDAToolkit_FOUND)
 
     if (NOT MSVC)
         list(APPEND CUDA_CXX_FLAGS -Wno-pedantic)
+    else()
+        # CCCL 3.2 onwards will require a cpp-standard-compliant preprocessor for MSVC
+        # https://github.com/NVIDIA/cccl/pull/6827
+        list(APPEND CUDA_CXX_FLAGS /Zc:preprocessor)
     endif()
 
     list(JOIN   CUDA_CXX_FLAGS " " CUDA_CXX_FLAGS_JOINED)  # pass host compiler flags as a single argument
